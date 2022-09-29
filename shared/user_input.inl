@@ -35,6 +35,7 @@ struct Settings {
     u32 flags;
     f32 fov;
     f32 jitter_scl;
+    f32 sensitivity;
 };
 
 struct MouseInput {

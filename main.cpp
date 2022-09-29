@@ -32,6 +32,7 @@ struct App : BaseApp<App> {
         return {
             .settings = {
                 .fov = 90.0f,
+                .sensitivity = 1.0f,
             },
         };
     }
@@ -141,6 +142,7 @@ struct App : BaseApp<App> {
                 if (ImGui::BeginMenu("Settings")) {
                     ImGui::Checkbox("Battery Saving Mode", &battery_saving_mode);
                     ImGui::SliderFloat("FOV", &gpu_input.settings.fov, 0.01f, 170.0f);
+                    ImGui::InputFloat("Mouse Sensitivity", &gpu_input.settings.sensitivity);
                     ImGui::SliderFloat("Jitter Scale", &gpu_input.settings.jitter_scl, 0.0f, 1.0f);
 
                     ImGui::Checkbox("Use Custom Resolution", &use_custom_resolution);

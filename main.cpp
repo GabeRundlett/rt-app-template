@@ -2,12 +2,6 @@
 #include <map>
 #include <fmt/format.h>
 
-#define TEMP_BARRIER(cmd_list)                                     \
-    cmd_list.pipeline_barrier({                                    \
-        .awaited_pipeline_access = daxa::AccessConsts::READ_WRITE, \
-        .waiting_pipeline_access = daxa::AccessConsts::READ_WRITE, \
-    })
-
 struct App : BaseApp<App> {
     // clang-format off
     daxa::ComputePipeline startup_comp_pipeline = pipeline_compiler.create_compute_pipeline({
@@ -334,28 +328,16 @@ ESCAPE to toggle pause (lock/unlock camera)
     }
 
     void record_tasks(daxa::TaskList &new_task_list) {
-        task_render_image = new_task_list.create_task_image({
-            .fetch_callback = [this]() { return render_image; },
-            .debug_name = APPNAME_PREFIX("task_render_image"),
-        });
-        task_gpu_input_buffer = new_task_list.create_task_buffer({
-            .fetch_callback = [this]() { return gpu_input_buffer; },
-            .debug_name = APPNAME_PREFIX("task_gpu_input_buffer"),
-        });
-        task_staging_gpu_input_buffer = new_task_list.create_task_buffer({
-            .fetch_callback = [this]() { return staging_gpu_input_buffer; },
-            .debug_name = APPNAME_PREFIX("task_staging_gpu_input_buffer"),
-        });
-        task_gpu_globals_buffer = new_task_list.create_task_buffer({
-            .fetch_callback = [this]() { return gpu_globals_buffer; },
-            .debug_name = APPNAME_PREFIX("task_gpu_globals_buffer"),
-        });
+        task_render_image = new_task_list.create_task_image({.image = &render_image, .debug_name = APPNAME_PREFIX("task_render_image")});
+        task_gpu_input_buffer = new_task_list.create_task_buffer({.buffer = &gpu_input_buffer, .debug_name = APPNAME_PREFIX("task_gpu_input_buffer")});
+        task_staging_gpu_input_buffer = new_task_list.create_task_buffer({.buffer = &staging_gpu_input_buffer, .debug_name = APPNAME_PREFIX("task_staging_gpu_input_buffer")});
+        task_gpu_globals_buffer = new_task_list.create_task_buffer({.buffer = &gpu_globals_buffer, .debug_name = APPNAME_PREFIX("task_gpu_globals_buffer")});
 
         new_task_list.add_task({
             .used_buffers = {
                 {task_staging_gpu_input_buffer, daxa::TaskBufferAccess::HOST_TRANSFER_WRITE},
             },
-            .task = [this](daxa::TaskInterface /* interf */) {
+            .task = [this](daxa::TaskRuntime /* interf */) {
                 GpuInput *buffer_ptr = device.map_memory_as<GpuInput>(staging_gpu_input_buffer);
                 *buffer_ptr = this->gpu_input;
                 device.unmap_memory(staging_gpu_input_buffer);
@@ -367,9 +349,8 @@ ESCAPE to toggle pause (lock/unlock camera)
                 {task_gpu_input_buffer, daxa::TaskBufferAccess::TRANSFER_WRITE},
                 {task_staging_gpu_input_buffer, daxa::TaskBufferAccess::TRANSFER_READ},
             },
-            .task = [this](daxa::TaskInterface interf) {
+            .task = [this](daxa::TaskRuntime interf) {
                 auto cmd_list = interf.get_command_list();
-                TEMP_BARRIER(cmd_list);
                 cmd_list.copy_buffer_to_buffer({
                     .src_buffer = staging_gpu_input_buffer,
                     .dst_buffer = gpu_input_buffer,
@@ -383,10 +364,9 @@ ESCAPE to toggle pause (lock/unlock camera)
             .used_buffers = {
                 {task_gpu_globals_buffer, daxa::TaskBufferAccess::HOST_TRANSFER_WRITE},
             },
-            .task = [this](daxa::TaskInterface interf) {
+            .task = [this](daxa::TaskRuntime interf) {
                 if (should_run_startup) {
                     auto cmd_list = interf.get_command_list();
-                    TEMP_BARRIER(cmd_list);
                     cmd_list.clear_buffer({
                         .buffer = gpu_globals_buffer,
                         .offset = 0,
@@ -395,17 +375,16 @@ ESCAPE to toggle pause (lock/unlock camera)
                     });
                 }
             },
-            .debug_name = "Startup (Globals Clear)",
+            .debug_name = APPNAME_PREFIX("Startup (Globals Clear)"),
         });
         new_task_list.add_task({
             .used_buffers = {
                 {task_gpu_globals_buffer, daxa::TaskBufferAccess::COMPUTE_SHADER_READ_WRITE},
             },
-            .task = [this](daxa::TaskInterface interf) {
+            .task = [this](daxa::TaskRuntime interf) {
                 if (should_run_startup) {
                     should_run_startup = false;
                     auto cmd_list = interf.get_command_list();
-                    TEMP_BARRIER(cmd_list);
                     cmd_list.set_pipeline(startup_comp_pipeline);
                     auto push = StartupCompPush{
                         .gpu_globals = this->device.buffer_reference(gpu_globals_buffer),
@@ -414,7 +393,7 @@ ESCAPE to toggle pause (lock/unlock camera)
                     cmd_list.dispatch(1, 1, 1);
                 }
             },
-            .debug_name = "Startup (Compute)",
+            .debug_name = APPNAME_PREFIX("Startup (Compute)"),
         });
 
         new_task_list.add_task({
@@ -422,9 +401,8 @@ ESCAPE to toggle pause (lock/unlock camera)
                 {task_gpu_globals_buffer, daxa::TaskBufferAccess::COMPUTE_SHADER_READ_WRITE},
                 {task_gpu_input_buffer, daxa::TaskBufferAccess::COMPUTE_SHADER_READ_ONLY},
             },
-            .task = [this](daxa::TaskInterface interf) {
+            .task = [this](daxa::TaskRuntime interf) {
                 auto cmd_list = interf.get_command_list();
-                TEMP_BARRIER(cmd_list);
                 cmd_list.set_pipeline(perframe_comp_pipeline);
                 auto push = PerframeCompPush{
                     .gpu_globals = this->device.buffer_reference(gpu_globals_buffer),
@@ -433,7 +411,7 @@ ESCAPE to toggle pause (lock/unlock camera)
                 cmd_list.push_constant(push);
                 cmd_list.dispatch(1, 1, 1);
             },
-            .debug_name = "Perframe (Compute)",
+            .debug_name = APPNAME_PREFIX("Perframe (Compute)"),
         });
 
         new_task_list.add_task({
@@ -442,11 +420,10 @@ ESCAPE to toggle pause (lock/unlock camera)
                 {task_gpu_input_buffer, daxa::TaskBufferAccess::COMPUTE_SHADER_READ_ONLY},
             },
             .used_images = {
-                {task_render_image, daxa::TaskImageAccess::COMPUTE_SHADER_WRITE_ONLY},
+                {task_render_image, daxa::TaskImageAccess::COMPUTE_SHADER_WRITE_ONLY, daxa::ImageMipArraySlice{}},
             },
-            .task = [this](daxa::TaskInterface interf) {
+            .task = [this](daxa::TaskRuntime interf) {
                 auto cmd_list = interf.get_command_list();
-                TEMP_BARRIER(cmd_list);
                 cmd_list.set_pipeline(draw_comp_pipeline);
                 cmd_list.push_constant(DrawCompPush{
                     .gpu_globals = device.buffer_reference(gpu_globals_buffer),
@@ -463,12 +440,11 @@ ESCAPE to toggle pause (lock/unlock camera)
                 {task_gpu_globals_buffer, daxa::TaskBufferAccess::COMPUTE_SHADER_READ_WRITE},
             },
             .used_images = {
-                {task_render_image, daxa::TaskImageAccess::TRANSFER_READ},
-                {task_swapchain_image, daxa::TaskImageAccess::TRANSFER_WRITE},
+                {task_render_image, daxa::TaskImageAccess::TRANSFER_READ, daxa::ImageMipArraySlice{}},
+                {task_swapchain_image, daxa::TaskImageAccess::TRANSFER_WRITE, daxa::ImageMipArraySlice{}},
             },
-            .task = [this](daxa::TaskInterface interf) {
+            .task = [this](daxa::TaskRuntime interf) {
                 auto cmd_list = interf.get_command_list();
-                TEMP_BARRIER(cmd_list);
                 cmd_list.blit_image_to_image({
                     .src_image = render_image,
                     .src_image_layout = daxa::ImageLayout::TRANSFER_SRC_OPTIMAL,
